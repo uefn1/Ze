@@ -38,6 +38,29 @@ jobs:
           ---
           本文はMarkdownで、見出しは##から始めてください。" 2>&1 | tee /tmp/draft.md
 
+      - name: Clean generated content
+        run: |
+          # ANSIエスケープシーケンスを除去
+          sed -E 's/\x1B\[[0-9;]*[mGKHF]//g' /tmp/draft.md > /tmp/draft_clean.md
+
+          # 最初の "---" 行以降（frontmatter以降）を抽出
+          awk 'BEGIN{found=0} /^---[[:space:]]*$/{found=1} found{print}' /tmp/draft_clean.md > /tmp/draft_final.md
+
+          # frontmatter以降に混ざったTUIログ行を除去
+          grep -v -E '^(◈|> build|> )' /tmp/draft_final.md > /tmp/draft_clean2.md || true
+
+          # 抽出結果を確認
+          echo "=== 抽出後の先頭20行 ==="
+          head -n 20 /tmp/draft_clean2.md
+
+          # 空でないことを確認
+          if [ ! -s /tmp/draft_clean2.md ]; then
+            echo "エラー: 抽出後のファイルが空です"
+            exit 1
+          fi
+
+          mv /tmp/draft_clean2.md /tmp/draft.md
+
       - name: Commit draft to draft branch
         env:
           ITER: ${{ inputs.iteration }}
@@ -47,6 +70,11 @@ jobs:
           cp /tmp/draft.md "articles/${SLUG}.md"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # draft/ 配下の衝突ブランチを自動削除
+          for ref in $(git ls-remote --heads origin 'refs/heads/draft/*' | awk '{print $2}'); do
+            git push origin --delete "${ref#refs/heads/}" || true
+          done
 
           # draftブランチが存在すればチェックアウト、なければ作成
           if git ls-remote --exit-code --heads origin draft > /dev/null 2>&1; then
