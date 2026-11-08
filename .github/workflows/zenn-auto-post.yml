@@ -1,0 +1,56 @@
+name: Zenn Auto Draft
+on:
+  workflow_dispatch:
+    inputs:
+      iteration:
+        description: 'イテレーション番号（任意・ログ用）'
+        required: false
+        type: number
+        default: 1
+
+permissions:
+  contents: write
+  pull-requests: write   # 下書きPR作成に必要
+  models: read           # GitHub Models（APIキー不要）
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate draft with GitHub Models
+        uses: actions/ai-inference@v1
+        id: ai
+        with:
+          model: openai/gpt-4o-mini
+          prompt: |
+            プログラミング関連のニュースやツールを紹介するZenn向け技術記事を、日本語で書いてください。
+            必ず以下のfrontmatterから始め、publishedは絶対にfalseのままにしてください：
+            ---
+            title: "（具体的で魅力的なタイトル）"
+            emoji: "（内容に合う絵文字1文字）"
+            type: "tech"
+            topics: ["（関連タグを最大5つ）"]
+            published: false
+            ---
+            本文はMarkdownで、見出しは##から始めてください。
+
+      - name: Create draft PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ITER: ${{ inputs.iteration }}
+        run: |
+          SLUG="auto-$(date +%Y%m%d-%H%M)-${ITER}"
+          mkdir -p articles
+          printf '%s\n' "${{ steps.ai.outputs.response }}" > "articles/${SLUG}.md"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "draft/${SLUG}"
+          git add "articles/${SLUG}.md"
+          git commit -m "draft: ${SLUG} (iteration ${ITER})"
+          git push -u origin "draft/${SLUG}"
+          gh pr create \
+            --title "下書き: ${SLUG}" \
+            --body "AI生成の下書きです。レビュー後、published を true に変更してマージしてください。" \
+            --base main
