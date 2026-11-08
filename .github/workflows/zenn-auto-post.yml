@@ -1,4 +1,4 @@
-name: Zenn Auto Draft (OpenCode Zen)
+name: Zenn Auto Draft
 on:
   workflow_dispatch:
     inputs:
@@ -10,13 +10,14 @@ on:
 
 permissions:
   contents: write
-  pull-requests: write
 
 jobs:
   generate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # draftブランチの取得に必要
 
       - name: Install OpenCode CLI
         run: npm install -g opencode-ai
@@ -35,11 +36,10 @@ jobs:
           topics: [\"（関連タグを最大5つ）\"]
           published: false
           ---
-          本文はMarkdownで、見出しは##から始めてください。" > /tmp/draft.md
+          本文はMarkdownで、見出しは##から始めてください。" 2>&1 | tee /tmp/draft.md
 
-      - name: Create draft PR
+      - name: Commit draft to draft branch
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ITER: ${{ inputs.iteration }}
         run: |
           SLUG="auto-$(date +%Y%m%d-%H%M)-${ITER}"
@@ -47,11 +47,15 @@ jobs:
           cp /tmp/draft.md "articles/${SLUG}.md"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git checkout -b "draft/${SLUG}"
+
+          # draftブランチが存在すればチェックアウト、なければ作成
+          if git ls-remote --exit-code --heads origin draft > /dev/null 2>&1; then
+            git checkout draft
+            git pull origin draft
+          else
+            git checkout -b draft
+          fi
+
           git add "articles/${SLUG}.md"
           git commit -m "draft: ${SLUG} (iteration ${ITER})"
-          git push -u origin "draft/${SLUG}"
-          gh pr create \
-            --title "下書き: ${SLUG}" \
-            --body "AI生成の下書きです。レビュー後、published を true に変更してマージしてください。" \
-            --base main
+          git push origin draft
