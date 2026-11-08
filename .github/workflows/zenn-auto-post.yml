@@ -1,17 +1,16 @@
-name: Zenn Auto Draft
+name: Zenn Auto Draft (OpenCode Zen)
 on:
   workflow_dispatch:
     inputs:
       iteration:
-        description: 'イテレーション番号（任意・ログ用）'
+        description: 'イテレーション番号（ログ用）'
         required: false
         type: number
         default: 1
 
 permissions:
   contents: write
-  pull-requests: write   # 下書きPR作成に必要
-  models: read           # GitHub Models（APIキー不要）
+  pull-requests: write
 
 jobs:
   generate:
@@ -19,22 +18,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Generate draft with GitHub Models
-        uses: actions/ai-inference@v1
-        id: ai
-        with:
-          model: openai/gpt-4o-mini
-          prompt: |
-            プログラミング関連のニュースやツールを紹介するZenn向け技術記事を、日本語で書いてください。
-            必ず以下のfrontmatterから始め、publishedは絶対にfalseのままにしてください：
-            ---
-            title: "（具体的で魅力的なタイトル）"
-            emoji: "（内容に合う絵文字1文字）"
-            type: "tech"
-            topics: ["（関連タグを最大5つ）"]
-            published: false
-            ---
-            本文はMarkdownで、見出しは##から始めてください。
+      - name: Install OpenCode CLI
+        run: npm install -g opencode-ai
+
+      - name: Generate draft with OpenCode Zen
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+        run: |
+          opencode run \
+            --model opencode/deepseek-v4.1-flash-free \
+            "プログラミング関連のニュースやツールを紹介するZenn向け技術記事を、日本語で書いてください。必ず以下のfrontmatterから始め、publishedは絶対にfalseのままにしてください：
+          ---
+          title: \"（具体的で魅力的なタイトル）\"
+          emoji: \"（内容に合う絵文字1文字）\"
+          type: \"tech\"
+          topics: [\"（関連タグを最大5つ）\"]
+          published: false
+          ---
+          本文はMarkdownで、見出しは##から始めてください。" > /tmp/draft.md
 
       - name: Create draft PR
         env:
@@ -43,7 +44,7 @@ jobs:
         run: |
           SLUG="auto-$(date +%Y%m%d-%H%M)-${ITER}"
           mkdir -p articles
-          printf '%s\n' "${{ steps.ai.outputs.response }}" > "articles/${SLUG}.md"
+          cp /tmp/draft.md "articles/${SLUG}.md"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout -b "draft/${SLUG}"
